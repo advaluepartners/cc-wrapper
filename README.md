@@ -34,7 +34,7 @@ This service spawns Claude Code CLI processes per-session and streams output via
 ```bash
 # Clone repo
 cd /opt/advalue
-git clone https://github.com/capital-a/cc-wrapper.git
+git clone https://github.com/advaluepartners/cc-wrapper.git
 cd claude-code-wrapper
 
 # Configure environment
@@ -163,7 +163,7 @@ npm start
 
 ```bash
 # Check logs
-sudo journalctl -u claude-code-wrapper -f
+sudo journalctl -u cc-wrapper -f
 
 # Verify PostgreSQL is running
 sudo systemctl status postgresql
