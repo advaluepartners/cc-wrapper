@@ -1,0 +1,132 @@
+name: Deploy to S3
+
+on:
+  workflow_call:
+    inputs:
+      repo_name:
+        required: true
+        type: string
+        description: 'Repository name for S3 path'
+
+env:
+  AWS_REGION: us-east-1
+  S3_BUCKET: advalue-repo-deployments
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::529088288400:role/GitHub-Actions-S3-Deploy-Role
+          role-session-name: GitHubActions-Deploy
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Prepare Deployment Package
+        id: prepare
+        run: |
+          # Set variables
+          REPO_NAME="${{ inputs.repo_name }}"
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          COMMIT_SHA="${{ github.sha }}"
+          BRANCH_NAME="${GITHUB_REF#refs/heads/}"
+          
+          # Create deployment info
+          cat > deployment-info.json <<EOF
+          {
+            "repository": "${{ github.repository }}",
+            "repo_name": "${REPO_NAME}",
+            "branch": "${BRANCH_NAME}",
+            "commit_sha": "${COMMIT_SHA}",
+            "commit_message": "${{ github.event.head_commit.message }}",
+            "deployed_by": "${{ github.actor }}",
+            "deployment_time": "${TIMESTAMP}",
+            "github_run_id": "${{ github.run_id }}"
+          }
+          EOF
+          
+          # Create temp directory for artifacts
+          TEMP_DIR=$(mktemp -d)
+          echo "Using temp directory: ${TEMP_DIR}"
+
+          # Create git bundle (preserves full git history)
+          echo "Creating git bundle..."
+          git bundle create ${TEMP_DIR}/${REPO_NAME}.bundle --all
+
+          # Create tarball (current state, no git history)
+          echo "Creating deployment tarball..."
+          tar -czf ${TEMP_DIR}/${REPO_NAME}.tar.gz \
+          --exclude='.git' \
+          --exclude='node_modules' \
+          --exclude='*.pyc' \
+          --exclude='__pycache__' \
+          --exclude='.env' \
+          --exclude='.venv' \
+          --exclude='dist' \
+          --exclude='build' \
+          --exclude='*.log' \
+          --exclude='.DS_Store' \
+          --exclude='*.bundle' \
+          --exclude='*.tar.gz' \
+          .
+
+          # Move files to current directory for next steps
+          mv ${TEMP_DIR}/${REPO_NAME}.bundle .
+          mv ${TEMP_DIR}/${REPO_NAME}.tar.gz .
+          rm -rf ${TEMP_DIR}
+          
+          # Output for next steps
+          echo "repo_name=${REPO_NAME}" >> $GITHUB_OUTPUT
+          echo "timestamp=${TIMESTAMP}" >> $GITHUB_OUTPUT
+          echo "branch=${BRANCH_NAME}" >> $GITHUB_OUTPUT
+      
+      - name: Upload to S3
+        run: |
+          REPO_NAME="${{ steps.prepare.outputs.repo_name }}"
+          TIMESTAMP="${{ steps.prepare.outputs.timestamp }}"
+          BRANCH="${{ steps.prepare.outputs.branch }}"
+          
+          # Upload current version
+          echo "Uploading ${REPO_NAME}.tar.gz to S3..."
+          aws s3 cp ${REPO_NAME}.tar.gz \
+            s3://${{ env.S3_BUCKET }}/repos/${REPO_NAME}/current/${REPO_NAME}.tar.gz
+          
+          # Upload git bundle
+          echo "Uploading ${REPO_NAME}.bundle to S3..."
+          aws s3 cp ${REPO_NAME}.bundle \
+            s3://${{ env.S3_BUCKET }}/repos/${REPO_NAME}/current/${REPO_NAME}.bundle
+          
+          # Upload deployment info
+          aws s3 cp deployment-info.json \
+            s3://${{ env.S3_BUCKET }}/repos/${REPO_NAME}/current/deployment-info.json
+          
+          # Archive with timestamp (for rollback capability)
+          aws s3 cp ${REPO_NAME}.tar.gz \
+            s3://${{ env.S3_BUCKET }}/repos/${REPO_NAME}/archive/${TIMESTAMP}/${REPO_NAME}.tar.gz
+          
+          aws s3 cp deployment-info.json \
+            s3://${{ env.S3_BUCKET }}/repos/${REPO_NAME}/archive/${TIMESTAMP}/deployment-info.json
+          
+          # Create a latest pointer
+          echo "${{ github.sha }}" > latest.txt
+          aws s3 cp latest.txt \
+            s3://${{ env.S3_BUCKET }}/repos/${REPO_NAME}/current/latest.txt
+          
+          # List uploaded files
+          echo "Files uploaded to S3:"
+          aws s3 ls s3://${{ env.S3_BUCKET }}/repos/${REPO_NAME}/current/
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f *.tar.gz *.bundle deployment-info.json latest.txt
