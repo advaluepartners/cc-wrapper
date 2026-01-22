@@ -45,7 +45,10 @@ async function start() {
 
   // WebSocket endpoint
   fastify.register(async function (fastify) {
-    fastify.get('/ws', { websocket: true }, async (socket, request) => {
+    fastify.get('/ws', { websocket: true }, async (connection, request) => {
+      // @fastify/websocket v8+ passes connection object, socket is connection.socket
+      const socket = connection.socket
+
       // Extract and validate JWT from query params or headers
       const token = request.query.token ||
                     request.headers.authorization?.replace('Bearer ', '')
