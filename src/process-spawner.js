@@ -25,6 +25,19 @@ class ClaudeProcessSpawner extends EventEmitter {
       throw new Error('Process already running')
     }
 
+    // Validate API key is present
+    if (!ANTHROPIC_API_KEY) {
+      const error = new Error('ANTHROPIC_API_KEY environment variable is not set')
+      this.emit('process_error', {
+        type: 'error',
+        message: error.message,
+        source: 'config',
+        session_id: this.sessionId,
+        timestamp: new Date().toISOString()
+      })
+      return null
+    }
+
     const args = ['--dangerously-skip-permissions']
 
     // Add model if specified
@@ -39,6 +52,10 @@ class ClaudeProcessSpawner extends EventEmitter {
       COLUMNS: '120',
       LINES: '40'
     }
+
+    console.log('[ClaudeProcessSpawner] Starting claude with args:', args)
+    console.log('[ClaudeProcessSpawner] Working directory:', this.workingDirectory)
+    console.log('[ClaudeProcessSpawner] API key present:', !!ANTHROPIC_API_KEY)
 
     this.process = spawn('claude', args, {
       cwd: this.workingDirectory,

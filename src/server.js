@@ -1,4 +1,9 @@
-require('dotenv').config()
+const path = require('path')
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') })
+
+// Log env status for debugging
+console.log('[cc-wrapper] ANTHROPIC_API_KEY loaded:', !!process.env.ANTHROPIC_API_KEY)
+console.log('[cc-wrapper] Working from:', __dirname)
 
 const fastify = require('fastify')({ logger: true })
 const websocket = require('@fastify/websocket')
