@@ -1,13 +1,17 @@
 #!/bin/bash
 # Setup script for Claude Code Wrapper on EC2 instance
+# This script is called after PostgreSQL is confirmed running
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WRAPPER_DIR="$(dirname "$SCRIPT_DIR")"
+# Use standard advalue paths
+WRAPPER_DIR="${WRAPPER_DIR:-/opt/advalue/cc-wrapper}"
+WORKSPACE_DIR="${WORKSPACE_DIR:-/opt/advalue/workspace}"
 
 echo "=== Claude Code Wrapper Setup ==="
 echo ""
+echo "Wrapper directory: $WRAPPER_DIR"
+echo "Workspace directory: $WORKSPACE_DIR"
 
 # Check if running as ubuntu user
 if [ "$(whoami)" != "ubuntu" ]; then
@@ -24,11 +28,12 @@ else
 fi
 
 # Create workspace directory
-WORKSPACE_DIR="${WORKSPACE_DIR:-/home/ubuntu/workspace}"
 if [ ! -d "$WORKSPACE_DIR" ]; then
     echo "Creating workspace directory: $WORKSPACE_DIR"
     sudo mkdir -p "$WORKSPACE_DIR"
     sudo chown ubuntu:ubuntu "$WORKSPACE_DIR"
+else
+    echo "Workspace directory already exists: $WORKSPACE_DIR"
 fi
 
 # Install Node.js dependencies
@@ -52,7 +57,7 @@ echo "Running database migrations..."
 "$SCRIPT_DIR/migrate.sh"
 
 # Create systemd service file
-SERVICE_FILE="/etc/systemd/system/claude-code-wrapper.service"
+SERVICE_FILE="/etc/systemd/system/cc-wrapper.service"
 echo ""
 echo "Creating systemd service..."
 
@@ -61,15 +66,31 @@ sudo tee "$SERVICE_FILE" > /dev/null << EOF
 Description=Claude Code Wrapper Service
 After=network-online.target postgresql.service
 Wants=network-online.target
+Documentation=https://github.com/advaluepartners/cc-wrapper
 
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=$WRAPPER_DIR
-ExecStart=/usr/bin/node $WRAPPER_DIR/src/server.js
+Group=ubuntu
+WorkingDirectory=${WRAPPER_DIR}
+ExecStart=/usr/bin/node ${WRAPPER_DIR}/src/server.js
 Restart=always
 RestartSec=10
 Environment=NODE_ENV=production
+
+# Resource limits
+MemoryAccounting=true
+MemoryMax=1G
+CPUQuota=50%
+
+# Security
+PrivateTmp=true
+NoNewPrivileges=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cc-wrapper
 
 [Install]
 WantedBy=multi-user.target
@@ -82,13 +103,13 @@ echo ""
 echo "=== Setup Complete ==="
 echo ""
 echo "To start the service:"
-echo "  sudo systemctl start claude-code-wrapper"
+echo "  sudo systemctl start cc-wrapper"
 echo ""
 echo "To enable on boot:"
-echo "  sudo systemctl enable claude-code-wrapper"
+echo "  sudo systemctl enable cc-wrapper"
 echo ""
 echo "To check status:"
-echo "  sudo systemctl status claude-code-wrapper"
+echo "  sudo systemctl status cc-wrapper"
 echo ""
 echo "To view logs:"
-echo "  sudo journalctl -u claude-code-wrapper -f"
+echo "  sudo journalctl -u cc-wrapper -f"
